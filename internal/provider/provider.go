@@ -55,6 +55,7 @@ func New(version string) func() *schema.Provider {
 				"rediscloud_subscription":          resourceRedisCloudSubscription(),
 				"rediscloud_subscription_database": resourceRedisCloudSubscriptionDatabase(),
 				"rediscloud_subscription_peering":  resourceRedisCloudSubscriptionPeering(),
+				"rediscloud_active_active_subscription_peering":  resourceRedisCloudActiveActiveSubscriptionPeering(),
 			},
 		}
 
