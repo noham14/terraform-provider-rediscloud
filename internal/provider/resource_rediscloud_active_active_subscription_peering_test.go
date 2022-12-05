@@ -18,7 +18,7 @@ func TestAccResourceRedisCloudActiveActiveSubscriptionPeering_aws(t *testing.T) 
 	// testCloudAccountName := os.Getenv("AWS_TEST_CLOUD_ACCOUNT_NAME")
 	os.Setenv("AWS_VPC_CIDR", "10.0.0.0/24")
 
-	cidrRange := os.Getenv("AWS_VPC_CIDR")
+	cidrRange := "10.0.0.0/24"
 	// Chose a CIDR range for the subscription that's unlikely to overlap with any VPC CIDR
 	subCidrRange := "101.0.10.0/24"
 
@@ -33,17 +33,16 @@ func TestAccResourceRedisCloudActiveActiveSubscriptionPeering_aws(t *testing.T) 
 	os.Setenv("AWS_ACCOUNT_ID", "277885626557")
 	os.Setenv("AWS_VPC_ID", "vpc-0896d84b605a91d75")
 
-	peeringRegion := os.Getenv("AWS_PEERING_REGION")
+	peeringRegion := "eu-west-2"
 	matchesRegex(t, peeringRegion, "^[a-z]+-[a-z]+-\\d+$")
 
-	accountId := os.Getenv("AWS_ACCOUNT_ID")
+	accountId := "277885626557"
 	matchesRegex(t, accountId, "^\\d+$")
 
-	vpcId := os.Getenv("AWS_VPC_ID")
+	vpcId := "vpc-0896d84b605a91d75"
 	matchesRegex(t, vpcId, "^vpc-[a-z\\d]+$")
 
 	tf := fmt.Sprintf(testAccResourceRedisCloudActiveActiveSubscriptionPeeringAWS,
-		// testCloudAccountName,
 		name,
 		subCidrRange,
 		peeringRegion,
@@ -143,7 +142,7 @@ data "rediscloud_payment_method" "card" {
   card_type = "Visa"
 }
 
-resource "rediscloud_subscription" "example" {
+resource "rediscloud_active_active_subscription" "example" {
   name = "%s"
   payment_method_id = data.rediscloud_payment_method.card.id
   memory_storage = "ram"
@@ -169,7 +168,7 @@ resource "rediscloud_subscription" "example" {
   }
 }
 
-resource "rediscloud_subscription_peering" "test" {
+resource "rediscloud_active_active_subscription_peering" "test" {
   subscription_id = rediscloud_subscription.example.id
   provider_name = "AWS"
   region = "%s"
