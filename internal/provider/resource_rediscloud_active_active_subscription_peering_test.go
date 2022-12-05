@@ -16,10 +16,11 @@ func TestAccResourceRedisCloudActiveActiveSubscriptionPeering_aws(t *testing.T) 
 	name := acctest.RandomWithPrefix(testResourcePrefix)
 
 	// testCloudAccountName := os.Getenv("AWS_TEST_CLOUD_ACCOUNT_NAME")
+	os.Setenv("AWS_VPC_CIDR", "10.0.0.0/24")
 
-	cidrRange := "152.10.0.0/24" //os.Getenv("AWS_VPC_CIDR")
+	cidrRange := os.Getenv("AWS_VPC_CIDR")
 	// Chose a CIDR range for the subscription that's unlikely to overlap with any VPC CIDR
-	subCidrRange := "10.0.0.0/24"
+	subCidrRange := "101.0.10.0/24"
 
 	overlap, err := cidrRangesOverlap(subCidrRange, cidrRange)
 	if err != nil {
@@ -28,6 +29,9 @@ func TestAccResourceRedisCloudActiveActiveSubscriptionPeering_aws(t *testing.T) 
 	if overlap {
 		subCidrRange = "172.16.0.0/24"
 	}
+	os.Setenv("AWS_PEERING_REGION", "eu-west-2")
+	os.Setenv("AWS_ACCOUNT_ID", "277885626557")
+	os.Setenv("AWS_VPC_ID", "vpc-0896d84b605a91d75")
 
 	peeringRegion := os.Getenv("AWS_PEERING_REGION")
 	matchesRegex(t, peeringRegion, "^[a-z]+-[a-z]+-\\d+$")
