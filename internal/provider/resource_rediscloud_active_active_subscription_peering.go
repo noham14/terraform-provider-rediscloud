@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"log"
 	"regexp"
 	"strconv"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/RedisLabs/rediscloud-go-api/service/cloud_accounts"
 	"github.com/RedisLabs/rediscloud-go-api/service/subscriptions"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
 )
@@ -84,12 +86,15 @@ func resourceRedisCloudActiveActiveSubscriptionPeering() *schema.Resource {
 				Computed:    true,
 				ForceNew:    true,
 			},
-			"vpc_cidr": {
-				Description: "CIDR range of the VPC to be peered",
-				Type:        schema.TypeString,
-				Optional:    true,
-				Computed:    true,
+			"vpc_cidrs": {
+				Description: "CIDR range(s) of the VPC to be peered",
+				Type:        schema.TypeSet,
 				ForceNew:    true,
+				Optional:    true,
+				Elem: &schema.Schema{
+					Type:             schema.TypeString,
+					ValidateDiagFunc: validateDiagFunc(validation.IsCIDR),
+				},
 			},
 			"gcp_project_id": {
 				Description: "GCP project ID that the VPC to be peered lives in",
@@ -169,16 +174,16 @@ func resourceRedisCloudSubscriptionActiveActivePeeringCreate(ctx context.Context
 			return diag.Errorf("`vpc_id` must be set when `provider_name` is `AWS`")
 		}
 
-		vpcCIDR, ok := d.GetOk("vpc_cidr")
+		vpcCIDRs, ok := d.GetOk("vpc_cidrs")
 		if !ok {
-			return diag.Errorf("`vpc_cidr` must be set when `provider_name` is `AWS`")
+			return diag.Errorf("`vpc_cidrs` must be set when `provider_name` is `AWS`")
 		}
 
 		peeringRequest.SourceRegion = redis.String(sourceRegion.(string))
 		peeringRequest.DestinationRegion = redis.String(destinationRegion.(string))
 		peeringRequest.AWSAccountID = redis.String(awsAccountID.(string))
 		peeringRequest.VPCId = redis.String(vpcID.(string))
-		peeringRequest.VPCCidr = redis.String(vpcCIDR.(string))
+		peeringRequest.VPCCidrs = setToStringSlice(vpcCIDRs.(*schema.Set))
 	}
 
 	if providerName == "GCP" {
@@ -205,7 +210,7 @@ func resourceRedisCloudSubscriptionActiveActivePeeringCreate(ctx context.Context
 
 	d.SetId(buildResourceId(subId, peering))
 
-	err = waitForPeeringToBeInitiated(ctx, subId, peering, api)
+	err = waitForActiveActivePeeringToBeInitiated(ctx, subId, peering, api)
 	if err != nil {
 		return diag.FromErr(err)
 	}
@@ -235,7 +240,7 @@ func resourceRedisCloudSubscriptionActiveActivePeeringRead(ctx context.Context, 
 		return diag.FromErr(err)
 	}
 
-	peering := findVpcPeering(id, peerings)
+	peering := findActiveActiveVpcPeering(id, peerings)
 	if peering == nil {
 		d.SetId("")
 		return diags
@@ -265,13 +270,13 @@ func resourceRedisCloudSubscriptionActiveActivePeeringRead(ctx context.Context, 
 		if err := d.Set("vpc_id", redis.StringValue(peering.VPCId)); err != nil {
 			return diag.FromErr(err)
 		}
-		if err := d.Set("vpc_cidr", redis.StringValue(peering.VPCCidr)); err != nil {
+		if err := d.Set("vpc_cidrs", peering.VPCCidrs); err != nil {
 			return diag.FromErr(err)
 		}
-		if err := d.Set("source_region", redis.StringValue(peering.Region)); err != nil {
+		if err := d.Set("source_region", redis.StringValue(peering.SourceRegion)); err != nil {
 			return diag.FromErr(err)
 		}
-		if err := d.Set("destination_region", redis.StringValue(peering.Region)); err != nil {
+		if err := d.Set("destination_region", redis.StringValue(peering.DestinationRegion)); err != nil {
 			return diag.FromErr(err)
 		}
 	}
@@ -321,4 +326,53 @@ func resourceRedisCloudSubscriptionActiveActivePeeringDelete(ctx context.Context
 	d.SetId("")
 
 	return diags
+}
+
+func findActiveActiveVpcPeering(id int, regions []*subscriptions.ActiveActiveVpcRegion) *subscriptions.ActiveActiveVPCPeering {
+	for _, region := range regions {
+		peerings := region.VPCPeerings
+		for _, peering := range peerings {
+			if redis.IntValue(peering.ID) == id {
+				return peering
+			}
+		}
+	}
+	return nil
+}
+
+func waitForActiveActivePeeringToBeInitiated(ctx context.Context, subId, id int, api *apiClient) error {
+	wait := &resource.StateChangeConf{
+		Delay: 10 * time.Second,
+		Pending: []string{
+			subscriptions.VPCPeeringStatusInitiatingRequest,
+		},
+		Target: []string{
+			subscriptions.VPCPeeringStatusActive,
+			subscriptions.VPCPeeringStatusInactive,
+			subscriptions.VPCPeeringStatusPendingAcceptance,
+		},
+		Timeout: 10 * time.Minute,
+
+		Refresh: func() (result interface{}, state string, err error) {
+			log.Printf("[DEBUG] Waiting for vpc peering %d to be initiated. Status: %s", id, state)
+
+			list, err := api.client.Subscription.ListActiveActiveVPCPeering(ctx, subId)
+			if err != nil {
+				return nil, "", err
+			}
+
+			peering := findActiveActiveVpcPeering(id, list)
+			if peering == nil {
+				log.Printf("Peering %d/%d not present yet", subId, id)
+				return nil, "", nil
+			}
+
+			return redis.StringValue(peering.Status), redis.StringValue(peering.Status), nil
+		},
+	}
+	if _, err := wait.WaitForStateContext(ctx); err != nil {
+		return err
+	}
+
+	return nil
 }

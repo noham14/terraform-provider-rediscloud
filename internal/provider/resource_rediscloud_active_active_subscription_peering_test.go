@@ -2,7 +2,6 @@ package provider
 
 import (
 	"fmt"
-	"net"
 	"os"
 	"regexp"
 	"testing"
@@ -14,26 +13,28 @@ import (
 func TestAccResourceRedisCloudActiveActiveSubscriptionPeering_aws(t *testing.T) {
 
 	name := acctest.RandomWithPrefix(testResourcePrefix)
-
+	type set struct {
+		m map[string]struct{}
+	}
 	// testCloudAccountName := os.Getenv("AWS_TEST_CLOUD_ACCOUNT_NAME")
 	os.Setenv("AWS_VPC_CIDR", "10.0.0.0/24")
 
-	cidrRange := "10.0.0.0/24"
+	cidrRange := "10.0.0.0/24\",\"101.0.10.0/24"
 	// Chose a CIDR range for the subscription that's unlikely to overlap with any VPC CIDR
-	subCidrRange := "101.0.10.0/24"
+	// subCidrRange := [1]string{"101.0.10.0/24"}
 
-	overlap, err := cidrRangesOverlap(subCidrRange, cidrRange)
-	if err != nil {
-		t.Fatalf("AWS_VPC_CIDR is not a valid CIDR range %s: %s", cidrRange, err)
-	}
-	if overlap {
-		subCidrRange = "172.16.0.0/24"
-	}
-	os.Setenv("AWS_PEERING_REGION", "eu-west-2")
+	// overlap, err := cidrRangesOverlapActiveActive(subCidrRange, cidrRange)
+	// if err != nil {
+	// 	t.Fatalf("AWS_VPC_CIDR is not a valid CIDR range %s: %s", cidrRange, err)
+	// }
+	// if overlap {
+	// 	subCidrRange = "172.16.0.0/24"
+	// }
+	os.Setenv("AWS_PEERING_REGION", "us-east-1")
 	os.Setenv("AWS_ACCOUNT_ID", "277885626557")
 	os.Setenv("AWS_VPC_ID", "vpc-0896d84b605a91d75")
 
-	peeringRegion := "eu-west-2"
+	peeringRegion := "us-east-1"
 	matchesRegex(t, peeringRegion, "^[a-z]+-[a-z]+-\\d+$")
 
 	accountId := "277885626557"
@@ -44,7 +45,7 @@ func TestAccResourceRedisCloudActiveActiveSubscriptionPeering_aws(t *testing.T) 
 
 	tf := fmt.Sprintf(testAccResourceRedisCloudActiveActiveSubscriptionPeeringAWS,
 		name,
-		subCidrRange,
+		// subCidrRange,
 		peeringRegion,
 		accountId,
 		vpcId,
@@ -65,7 +66,7 @@ func TestAccResourceRedisCloudActiveActiveSubscriptionPeering_aws(t *testing.T) 
 					resource.TestCheckResourceAttrSet(resourceName, "provider_name"),
 					resource.TestCheckResourceAttrSet(resourceName, "aws_account_id"),
 					resource.TestCheckResourceAttrSet(resourceName, "vpc_id"),
-					resource.TestCheckResourceAttrSet(resourceName, "vpc_cidr"),
+					resource.TestCheckResourceAttrSet(resourceName, "vpc_cidrs"),
 					resource.TestCheckResourceAttrSet(resourceName, "region"),
 					resource.TestCheckResourceAttrSet(resourceName, "aws_peering_id"),
 				),
@@ -122,20 +123,20 @@ func matchesRegexActiveActive(t *testing.T, value string, regex string) {
 	}
 }
 
-func cidrRangesOverlapActiveActive(cidr1 string, cidr2 string) (bool, error) {
-	_, first, err := net.ParseCIDR(cidr1)
-	if err != nil {
-		return false, err
-	}
-	_, second, err := net.ParseCIDR(cidr2)
-	if err != nil {
-		return false, err
-	}
+// func cidrRangesOverlapActiveActive(cidr1 string, cidr2 []string) (bool, error) {
+// 	_, first, err := net.ParseActiveActiveCIDR(cidr1)
+// 	if err != nil {
+// 		return false, err
+// 	}
+// 	_, second, err := net.ParseActiveActiveCIDR(cidr2)
+// 	if err != nil {
+// 		return false, err
+// 	}
 
-	overlaps := first.Contains(second.IP) || second.Contains(first.IP)
+// 	overlaps := first.Contains(second.IP) || second.Contains(first.IP)
 
-	return overlaps, nil
-}
+// 	return overlaps, nil
+// }
 
 const testAccResourceRedisCloudActiveActiveSubscriptionPeeringAWS = `
 data "rediscloud_payment_method" "card" {
@@ -143,38 +144,37 @@ data "rediscloud_payment_method" "card" {
 }
 
 resource "rediscloud_active_active_subscription" "example" {
-  name = "%s"
-  payment_method_id = data.rediscloud_payment_method.card.id
-  memory_storage = "ram"
-
-  cloud_provider {
-    provider = "AWS"
-    region {
-      region = "eu-west-1"
-      networking_deployment_cidr = "%s"
-      preferred_availability_zones = ["eu-west-1a"]
+    name = "%s"
+    payment_method_id = data.rediscloud_payment_method.card.id
+    cloud_provider = "AWS"
+    creation_plan {
+        memory_limit_in_gb = 1
+        quantity = 1
+        support_oss_cluster_api=false
+        region {
+            region = "us-east-1"
+            networking_deployment_cidr = "192.168.0.0/24"
+            write_operations_per_second = 1000
+            read_operations_per_second = 1000
+        }
+        region {
+            region = "us-east-2"
+            networking_deployment_cidr = "10.0.1.0/24"
+            write_operations_per_second = 1000
+            read_operations_per_second = 1000
+        }
     }
-  }
-
-  creation_plan {
-    average_item_size_in_bytes = 1
-    memory_limit_in_gb = 1
-    quantity = 1
-    replication=false
-    support_oss_cluster_api=false
-    throughput_measurement_by = "operations-per-second"
-    throughput_measurement_value = 10000
-	modules = []
-  }
 }
 
 resource "rediscloud_active_active_subscription_peering" "test" {
-  subscription_id = rediscloud_subscription.example.id
+  subscription_id = rediscloud_active_active_subscription.example.id
   provider_name = "AWS"
-  region = "%s"
+  source_region = "%s"
+  destination_region = "eu-west-2"
   aws_account_id = "%s"
   vpc_id = "%s"
-  vpc_cidr = "%s"
+  vpc_cidrs = ["%s"]
+
 }
 `
 
