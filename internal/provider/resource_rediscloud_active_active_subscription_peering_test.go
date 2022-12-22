@@ -19,7 +19,7 @@ func TestAccResourceRedisCloudActiveActiveSubscriptionPeering_aws(t *testing.T) 
 	// testCloudAccountName := os.Getenv("AWS_TEST_CLOUD_ACCOUNT_NAME")
 	os.Setenv("AWS_VPC_CIDR", "10.0.0.0/24")
 
-	cidrRange := "10.0.0.0/24\",\"101.0.10.0/24"
+	cidrRange := "10.0.30.0/24"
 	// Chose a CIDR range for the subscription that's unlikely to overlap with any VPC CIDR
 	// subCidrRange := [1]string{"101.0.10.0/24"}
 
@@ -34,8 +34,8 @@ func TestAccResourceRedisCloudActiveActiveSubscriptionPeering_aws(t *testing.T) 
 	os.Setenv("AWS_ACCOUNT_ID", "277885626557")
 	os.Setenv("AWS_VPC_ID", "vpc-0896d84b605a91d75")
 
-	peeringRegion := "us-east-1"
-	matchesRegex(t, peeringRegion, "^[a-z]+-[a-z]+-\\d+$")
+	sourceRegion := "us-east-1"
+	matchesRegex(t, sourceRegion, "^[a-z]+-[a-z]+-\\d+$")
 
 	accountId := "277885626557"
 	matchesRegex(t, accountId, "^\\d+$")
@@ -43,15 +43,17 @@ func TestAccResourceRedisCloudActiveActiveSubscriptionPeering_aws(t *testing.T) 
 	vpcId := "vpc-0896d84b605a91d75"
 	matchesRegex(t, vpcId, "^vpc-[a-z\\d]+$")
 
+	fmt.Println(sourceRegion)
+
 	tf := fmt.Sprintf(testAccResourceRedisCloudActiveActiveSubscriptionPeeringAWS,
 		name,
 		// subCidrRange,
-		peeringRegion,
+		// sourceRegion,
 		accountId,
 		vpcId,
 		cidrRange,
 	)
-	resourceName := "rediscloud_subscription_peering.test"
+	resourceName := "rediscloud_active_active_subscription_peering.test"
 
 	resource.ParallelTest(t, resource.TestCase{
 		PreCheck:          func() { testAccPreCheck(t); testAccAwsPeeringPreCheck(t); testAccAwsPreExistingCloudAccountPreCheck(t) },
@@ -66,8 +68,9 @@ func TestAccResourceRedisCloudActiveActiveSubscriptionPeering_aws(t *testing.T) 
 					resource.TestCheckResourceAttrSet(resourceName, "provider_name"),
 					resource.TestCheckResourceAttrSet(resourceName, "aws_account_id"),
 					resource.TestCheckResourceAttrSet(resourceName, "vpc_id"),
-					resource.TestCheckResourceAttrSet(resourceName, "vpc_cidrs"),
-					resource.TestCheckResourceAttrSet(resourceName, "region"),
+					resource.TestCheckResourceAttr(resourceName, "vpc_cidrs.#", "1"),
+					resource.TestCheckResourceAttrSet(resourceName, "source_region"),
+					resource.TestCheckResourceAttrSet(resourceName, "destination_region"),
 					resource.TestCheckResourceAttrSet(resourceName, "aws_peering_id"),
 				),
 			},
@@ -88,7 +91,7 @@ func TestAccResourceRedisCloudActiveActiveSubscriptionPeering_gcp(t *testing.T) 
 		os.Getenv("GCP_VPC_PROJECT"),
 		os.Getenv("GCP_VPC_ID"),
 	)
-	resourceName := "rediscloud_subscription_peering.test"
+	resourceName := "rediscloud_active_active_subscription_peering.test"
 
 	resource.ParallelTest(t, resource.TestCase{
 		PreCheck:          func() { testAccPreCheck(t) },
@@ -169,12 +172,16 @@ resource "rediscloud_active_active_subscription" "example" {
 resource "rediscloud_active_active_subscription_peering" "test" {
   subscription_id = rediscloud_active_active_subscription.example.id
   provider_name = "AWS"
-  source_region = "%s"
+  source_region = "us-east-1"
   destination_region = "eu-west-2"
   aws_account_id = "%s"
   vpc_id = "%s"
   vpc_cidrs = ["%s"]
+}
 
+resource "aws_vpc_peering_connection_accepter" "example-peering" {
+	vpc_peering_connection_id = rediscloud_active_active_subscription_peering.test.aws_peering_id
+	auto_accept               = true
 }
 `
 
@@ -186,31 +193,27 @@ data "rediscloud_payment_method" "card" {
 resource "rediscloud_subscription" "example" {
   name = "%s"
   payment_method_id = data.rediscloud_payment_method.card.id
-  memory_storage = "ram"
-
-  cloud_provider {
-    provider = "GCP"
-    cloud_account_id = 1
-    region {
-      region = "europe-west1"
-      networking_deployment_cidr = "192.168.0.0/24"
-      preferred_availability_zones = []
-    }
-  }
-
+  cloud_provider = "GCP"
   creation_plan {
-    average_item_size_in_bytes = 1
-    memory_limit_in_gb = 1
-    quantity = 1
-    replication=false
-    support_oss_cluster_api=false
-    throughput_measurement_by = "operations-per-second"
-    throughput_measurement_value = 10000
-	modules = []
+	  memory_limit_in_gb = 1
+	  quantity = 1
+	  support_oss_cluster_api=false
+	  region {
+		  region = "us-east-1"
+		  networking_deployment_cidr = "192.168.0.0/24"
+		  write_operations_per_second = 1000
+		  read_operations_per_second = 1000
+	  }
+	  region {
+		  region = "us-east-2"
+		  networking_deployment_cidr = "10.0.1.0/24"
+		  write_operations_per_second = 1000
+		  read_operations_per_second = 1000
+	  }
   }
 }
 
-resource "rediscloud_subscription_peering" "test" {
+resource "rediscloud_active_active_subscription_peering" "test" {
   subscription_id = rediscloud_subscription.example.id
   provider_name = "GCP"
   gcp_project_id = "%s"

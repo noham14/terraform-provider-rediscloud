@@ -27,7 +27,9 @@ resource "rediscloud_active_active_subscription_peering" "example" {
    destination_region = "eu-west-2"
    aws_account_id = "123456789012"
    vpc_id = "vpc-01234567890"
-   vpc_cidrs = ["10.0.0.0/8"]
+   vpc_cidrs = [
+    "10.0.10.0/24"
+    ]
 }
 
 resource "aws_vpc_peering_connection_accepter" "example-peering" {
@@ -46,19 +48,12 @@ resource "rediscloud_subscription" "example" {
   // ...
 }
 
-resource "rediscloud_subscription_peering" "example" {
-   subscription_id = rediscloud_subscription.example.id
-   provider_name = "GCP"
-   gcp_project_id = "cloud-api-123456"
-   gcp_network_name = "cloud-api-vpc-peering-example"
-}
-
 data "google_compute_network" "network" {
   project = "my-gcp-project"
   name = "my-gcp-vpc"
 }
 
-resource "rediscloud_subscription_peering" "example-peering" {
+resource "rediscloud_active_active_subscription_peering" "example-peering" {
   subscription_id = rediscloud_subscription.example.id
   provider_name = "GCP"
   gcp_project_id = data.google_compute_network.network.project
@@ -68,7 +63,7 @@ resource "rediscloud_subscription_peering" "example-peering" {
 resource "google_compute_network_peering" "example-peering" {
   name         = "peering-gcp-example"
   network      = data.google_compute_network.network.self_link
-  peer_network = "https://www.googleapis.com/compute/v1/projects/${rediscloud_subscription_peering.example.gcp_redis_project_id}/global/networks/${rediscloud_subscription_peering.example.gcp_redis_network_name}"
+  peer_network = "https://www.googleapis.com/compute/v1/projects/${rediscloud_active_active_subscription_peering.example.gcp_redis_project_id}/global/networks/${rediscloud_active_active_subscription_peering.example.gcp_redis_network_name}"
 }
 ```
 
